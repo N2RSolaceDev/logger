@@ -1,0 +1,35 @@
+{
+  "name": "discord-server-logger",
+  "version": "1.0.0",
+  "description": "A Discord bot that monitors and logs server events like message edits, bans, kicks, role changes, and more.",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "lint": "eslint . --ext .js"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "server",
+    "moderation",
+    "logging",
+    "audit",
+    "monitor"
+  ],
+  "author": "Your Name <you@example.com>",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.18.0",
+    "dotenv": "^16.0.3"
+  },
+  "devDependencies": {
+    "eslint": "^8.56.0",
+    "eslint-config-standard": "^17.1.0",
+    "eslint-plugin-import": "^2.27.5",
+    "eslint-plugin-node": "^11.1.0",
+    "eslint-plugin-promise": "^6.1.1",
+    "nodemon": "^3.0.2"
+  }
+}
