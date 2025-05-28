@@ -1,5 +1,5 @@
 require('dotenv').config(); // Load .env file
-const { Client, GatewayIntentBits, Partials, AuditLogEvent } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, AuditLogEvent, ChannelType } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const express = require('express'); // Import express
@@ -11,11 +11,9 @@ if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR);
 // Create Express App
 const app = express();
 const PORT = process.env.PORT || 10000;
-
 app.get('/', (req, res) => {
     res.send('Discord Logger Bot is running!');
 });
-
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🌐 Web server listening on port ${PORT}`);
 });
@@ -49,16 +47,14 @@ function formatTime(date) {
 function saveLogToFile(guildId, content) {
     const date = new Date().toISOString().split('T')[0];
     const filePath = path.join(LOG_DIR, `${guildId}-${date}.log`);
-    const timestamped = `[${new Date().toISOString()}] ${content}
-`;
+    const timestamped = `[${new Date().toISOString()}] ${content}\n`;
     fs.appendFileSync(filePath, timestamped);
 }
 
 function getUserInfo(user) {
     return {
         name: `${user.username}#${user.discriminator}`,
-        value: `**User ID:** ${user.id}
-**Created At:** ${formatTime(user.createdAt)}`,
+        value: `**User ID:** ${user.id}\n**Created At:** ${formatTime(user.createdAt)}`,
         inline: false
     };
 }
@@ -248,9 +244,12 @@ client.on('channelCreate', async channel => {
     if (channel.guild?.id !== MONITOR_GUILD_ID) return;
     const audit = await channel.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.ChannelCreate });
     const entry = audit.entries.first();
+
+    const emoji = channel.type === ChannelType.GuildText ? '📝' : channel.type === ChannelType.GuildVoice ? '🔊' : '📁';
+
     const embed = {
         color: 0x00ccff,
-        title: `${channel.isText() ? '📝' : '🔊'} Channel Created: ${channel.name}`,
+        title: `${emoji} Channel Created: ${channel.name}`,
         description: `**Type:** ${channel.type}`,
         fields: [
             { name: 'Channel ID', value: channel.id },
@@ -272,8 +271,7 @@ client.on('channelDelete', async channel => {
     const embed = {
         color: 0xff6347,
         title: '❌ Channel Deleted',
-        description: `**Name:** ${channel.name}
-**Type:** ${channel.type}`,
+        description: `**Name:** ${channel.name}\n**Type:** ${channel.type}`,
         fields: [
             { name: 'Channel ID', value: channel.id },
             getExecutorInfo(entry, channel.guild) || {
