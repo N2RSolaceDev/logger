@@ -52,6 +52,14 @@ function saveLogToFile(guildId, content) {
 }
 
 function getUserInfo(user) {
+    if (!user) {
+        return {
+            name: 'Unknown User',
+            value: 'Could not retrieve user information.',
+            inline: false
+        };
+    }
+
     return {
         name: `${user.username}#${user.discriminator}`,
         value: `**User ID:** ${user.id}\n**Created At:** ${formatTime(user.createdAt)}`,
@@ -244,9 +252,7 @@ client.on('channelCreate', async channel => {
     if (channel.guild?.id !== MONITOR_GUILD_ID) return;
     const audit = await channel.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.ChannelCreate });
     const entry = audit.entries.first();
-
     const emoji = channel.type === ChannelType.GuildText ? '📝' : channel.type === ChannelType.GuildVoice ? '🔊' : '📁';
-
     const embed = {
         color: 0x00ccff,
         title: `${emoji} Channel Created: ${channel.name}`,
@@ -411,7 +417,7 @@ client.on('voiceStateUpdate', (oldState, newState) => {
         color: 0x0099ff,
         title,
         description,
-        fields: [getUserInfo(newState.member.user)],
+        fields: [getUserInfo(newState.member?.user)],
         timestamp: new Date()
     };
     sendLog(embed);
