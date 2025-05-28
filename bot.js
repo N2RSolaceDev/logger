@@ -2,7 +2,7 @@ require('dotenv').config(); // Load .env file
 const { Client, GatewayIntentBits, Partials, AuditLogEvent, ChannelType } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
-const express = require('express'); // Import express
+const express = require('express');
 
 // Setup logging directory
 const LOG_DIR = path.join(__dirname, 'logs');
@@ -41,18 +41,26 @@ const MONITOR_GUILD_ID = process.env.MONITOR_GUILD_ID;
 const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID;
 
 function formatTime(date) {
-    return new Date(date).toLocaleString();
+    try {
+        return new Date(date).toLocaleString();
+    } catch (e) {
+        return 'Unknown';
+    }
 }
 
 function saveLogToFile(guildId, content) {
-    const date = new Date().toISOString().split('T')[0];
-    const filePath = path.join(LOG_DIR, `${guildId}-${date}.log`);
-    const timestamped = `[${new Date().toISOString()}] ${content}\n`;
-    fs.appendFileSync(filePath, timestamped);
+    try {
+        const date = new Date().toISOString().split('T')[0];
+        const filePath = path.join(LOG_DIR, `${guildId}-${date}.log`);
+        const timestamped = `[${new Date().toISOString()}] ${content}\n`;
+        fs.appendFileSync(filePath, timestamped);
+    } catch (err) {
+        console.error("Failed to write log file:", err);
+    }
 }
 
 function getUserInfo(user) {
-    if (!user) {
+    if (!user || typeof user !== 'object') {
         return {
             name: 'Unknown User',
             value: 'Could not retrieve user information.',
@@ -60,9 +68,14 @@ function getUserInfo(user) {
         };
     }
 
+    const username = user.username ?? 'Unknown';
+    const discriminator = user.discriminator ?? '0000';
+    const id = user.id ?? 'N/A';
+    const createdAt = user.createdAt ? formatTime(user.createdAt) : 'Unknown';
+
     return {
-        name: `${user.username}#${user.discriminator}`,
-        value: `**User ID:** ${user.id}\n**Created At:** ${formatTime(user.createdAt)}`,
+        name: `${username}#${discriminator}`,
+        value: `**User ID:** ${id}\n**Created At:** ${createdAt}`,
         inline: false
     };
 }
@@ -73,14 +86,21 @@ function getExecutorInfo(entry, guild) {
     return getUserInfo(user);
 }
 
-function sendLog(embed) {
-    const logChannel = client.channels.cache.get(LOG_CHANNEL_ID);
-    if (!logChannel) {
-        console.warn("Log channel not found.");
-        return;
+async function sendLog(embed) {
+    try {
+        const logChannel = client.channels.cache.get(LOG_CHANNEL_ID);
+        if (!logChannel) {
+            console.warn("Log channel not found.");
+            return;
+        }
+
+        const embedJson = JSON.stringify(embed, null, 2);
+        saveLogToFile(MONITOR_GUILD_ID, embedJson);
+
+        await logChannel.send({ embeds: [embed] });
+    } catch (err) {
+        console.error("Error sending log message:", err);
     }
-    saveLogToFile(MONITOR_GUILD_ID, JSON.stringify(embed));
-    logChannel.send({ embeds: [embed] }).catch(console.error);
 }
 
 client.once('ready', () => {
@@ -112,6 +132,7 @@ client.on('messageCreate', msg => {
 client.on('messageUpdate', async (oldMsg, newMsg) => {
     if (oldMsg.guild?.id !== MONITOR_GUILD_ID || oldMsg.author?.bot) return;
     if (oldMsg.content === newMsg.content) return;
+
     const embed = {
         color: 0xffd700,
         title: '✏️ Message Edited',
@@ -136,6 +157,7 @@ client.on('messageUpdate', async (oldMsg, newMsg) => {
 
 client.on('messageDelete', async message => {
     if (message.guild?.id !== MONITOR_GUILD_ID || message.author?.bot) return;
+
     const embed = {
         color: 0xff6347,
         title: '🗑️ Message Deleted',
@@ -180,42 +202,52 @@ client.on('guildMemberRemove', member => {
 // --- BAN EVENTS ---
 client.on('guildBanAdd', async (guild, user) => {
     if (guild.id !== MONITOR_GUILD_ID) return;
-    const audit = await guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MemberBanAdd });
-    const entry = audit.entries.first();
-    const embed = {
-        color: 0xff0000,
-        title: '⛔ User Banned',
-        fields: [
-            getUserInfo(user),
-            getExecutorInfo(entry, guild) || {
-                name: 'Moderator',
-                value: 'Could not retrieve.',
-                inline: false
-            }
-        ],
-        timestamp: new Date()
-    };
-    sendLog(embed);
+    try {
+        const audit = await guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MemberBanAdd });
+        const entry = audit.entries.first();
+
+        const embed = {
+            color: 0xff0000,
+            title: '⛔ User Banned',
+            fields: [
+                getUserInfo(user),
+                getExecutorInfo(entry, guild) || {
+                    name: 'Moderator',
+                    value: 'Could not retrieve.',
+                    inline: false
+                }
+            ],
+            timestamp: new Date()
+        };
+        sendLog(embed);
+    } catch (err) {
+        console.error("Error handling guildBanAdd:", err);
+    }
 });
 
 client.on('guildBanRemove', async (guild, user) => {
     if (guild.id !== MONITOR_GUILD_ID) return;
-    const audit = await guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MemberBanRemove });
-    const entry = audit.entries.first();
-    const embed = {
-        color: 0x00ccff,
-        title: '🔓 User Unbanned',
-        fields: [
-            getUserInfo(user),
-            getExecutorInfo(entry, guild) || {
-                name: 'Moderator',
-                value: 'Could not retrieve.',
-                inline: false
-            }
-        ],
-        timestamp: new Date()
-    };
-    sendLog(embed);
+    try {
+        const audit = await guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.MemberBanRemove });
+        const entry = audit.entries.first();
+
+        const embed = {
+            color: 0x00ccff,
+            title: '🔓 User Unbanned',
+            fields: [
+                getUserInfo(user),
+                getExecutorInfo(entry, guild) || {
+                    name: 'Moderator',
+                    value: 'Could not retrieve.',
+                    inline: false
+                }
+            ],
+            timestamp: new Date()
+        };
+        sendLog(embed);
+    } catch (err) {
+        console.error("Error handling guildBanRemove:", err);
+    }
 });
 
 // --- GUILD METADATA EVENTS ---
@@ -229,66 +261,82 @@ client.on('guildUpdate', async (oldGuild, newGuild) => {
         changes.push(`**Region:** \`${oldGuild.region}\` → \`${newGuild.region}\``);
     }
     if (changes.length === 0) return;
-    const audit = await newGuild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.GuildUpdate });
-    const entry = audit.entries.first();
-    const embed = {
-        color: 0x800080,
-        title: `🌐 Server Updated: ${newGuild.name}`,
-        description: changes.join('\n'),
-        fields: [
-            getExecutorInfo(entry, newGuild) || {
-                name: 'Moderator',
-                value: 'Could not retrieve.',
-                inline: false
-            }
-        ],
-        timestamp: new Date()
-    };
-    sendLog(embed);
+
+    try {
+        const audit = await newGuild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.GuildUpdate });
+        const entry = audit.entries.first();
+
+        const embed = {
+            color: 0x800080,
+            title: `🌐 Server Updated: ${newGuild.name}`,
+            description: changes.join('\n'),
+            fields: [
+                getExecutorInfo(entry, newGuild) || {
+                    name: 'Moderator',
+                    value: 'Could not retrieve.',
+                    inline: false
+                }
+            ],
+            timestamp: new Date()
+        };
+        sendLog(embed);
+    } catch (err) {
+        console.error("Error handling guildUpdate:", err);
+    }
 });
 
 // --- CHANNEL EVENTS ---
 client.on('channelCreate', async channel => {
     if (channel.guild?.id !== MONITOR_GUILD_ID) return;
-    const audit = await channel.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.ChannelCreate });
-    const entry = audit.entries.first();
-    const emoji = channel.type === ChannelType.GuildText ? '📝' : channel.type === ChannelType.GuildVoice ? '🔊' : '📁';
-    const embed = {
-        color: 0x00ccff,
-        title: `${emoji} Channel Created: ${channel.name}`,
-        description: `**Type:** ${channel.type}`,
-        fields: [
-            { name: 'Channel ID', value: channel.id },
-            getExecutorInfo(entry, channel.guild) || {
-                name: 'Moderator',
-                value: 'Could not retrieve.',
-                inline: false
-            }
-        ],
-        timestamp: new Date()
-    };
-    sendLog(embed);
+    try {
+        const audit = await channel.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.ChannelCreate });
+        const entry = audit.entries.first();
+        const emoji = channel.type === ChannelType.GuildText ? '📝' : channel.type === ChannelType.GuildVoice ? '🔊' : '📁';
+
+        const embed = {
+            color: 0x00ccff,
+            title: `${emoji} Channel Created: ${channel.name}`,
+            description: `**Type:** ${channel.type}`,
+            fields: [
+                { name: 'Channel ID', value: channel.id },
+                getExecutorInfo(entry, channel.guild) || {
+                    name: 'Moderator',
+                    value: 'Could not retrieve.',
+                    inline: false
+                }
+            ],
+            timestamp: new Date()
+        };
+        sendLog(embed);
+    } catch (err) {
+        console.error("Error handling channelCreate:", err);
+    }
 });
 
 client.on('channelDelete', async channel => {
     if (channel.guild?.id !== MONITOR_GUILD_ID) return;
-    const audit = await channel.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.ChannelDelete });
-    const entry = audit.entries.first();
-    const embed = {
-        color: 0xff6347,
-        title: '❌ Channel Deleted',
-        description: `**Name:** ${channel.name}\n**Type:** ${channel.type}`,
-        fields: [
-            { name: 'Channel ID', value: channel.id },
-            getExecutorInfo(entry, channel.guild) || {
-                name: 'Moderator',
-                value: 'Could not retrieve.',
-                inline: false
-            }
-        ],
-        timestamp: new Date()
-    };
-    sendLog(embed);
+    try {
+        const audit = await channel.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.ChannelDelete });
+        const entry = audit.entries.first();
+
+        const embed = {
+            color: 0xff6347,
+            title: '❌ Channel Deleted',
+            description: `**Name:** ${channel.name}\n**Type:** ${channel.type}`,
+            fields: [
+                { name: 'Channel ID', value: channel.id },
+                getExecutorInfo(entry, channel.guild) || {
+                    name: 'Moderator',
+                    value: 'Could not retrieve.',
+                    inline: false
+                }
+            ],
+            timestamp: new Date()
+        };
+        sendLog(embed);
+    } catch (err) {
+        console.error("Error handling channelDelete:", err);
+    }
 });
 
 client.on('channelUpdate', async (oldChannel, newChannel) => {
@@ -301,66 +349,82 @@ client.on('channelUpdate', async (oldChannel, newChannel) => {
         changes.push(`**Position:** \`${oldChannel.position}\` → \`${newChannel.position}\``);
     }
     if (changes.length === 0) return;
-    const audit = await newChannel.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.ChannelUpdate });
-    const entry = audit.entries.first();
-    const embed = {
-        color: 0xffd700,
-        title: `📝 Channel Updated: ${newChannel.name}`,
-        description: changes.join('\n'),
-        fields: [
-            { name: 'Channel ID', value: newChannel.id },
-            getExecutorInfo(entry, newChannel.guild) || {
-                name: 'Moderator',
-                value: 'Could not retrieve.',
-                inline: false
-            }
-        ],
-        timestamp: new Date()
-    };
-    sendLog(embed);
+
+    try {
+        const audit = await newChannel.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.ChannelUpdate });
+        const entry = audit.entries.first();
+
+        const embed = {
+            color: 0xffd700,
+            title: `📝 Channel Updated: ${newChannel.name}`,
+            description: changes.join('\n'),
+            fields: [
+                { name: 'Channel ID', value: newChannel.id },
+                getExecutorInfo(entry, newChannel.guild) || {
+                    name: 'Moderator',
+                    value: 'Could not retrieve.',
+                    inline: false
+                }
+            ],
+            timestamp: new Date()
+        };
+        sendLog(embed);
+    } catch (err) {
+        console.error("Error handling channelUpdate:", err);
+    }
 });
 
 // --- ROLE EVENTS ---
 client.on('roleCreate', async role => {
     if (role.guild.id !== MONITOR_GUILD_ID) return;
-    const audit = await role.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.RoleCreate });
-    const entry = audit.entries.first();
-    const embed = {
-        color: 0x800080,
-        title: '🆕 Role Created',
-        description: `**Role Name:** ${role.name}`,
-        fields: [
-            { name: 'Role ID', value: role.id },
-            getExecutorInfo(entry, role.guild) || {
-                name: 'Moderator',
-                value: 'Could not retrieve.',
-                inline: false
-            }
-        ],
-        timestamp: new Date()
-    };
-    sendLog(embed);
+    try {
+        const audit = await role.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.RoleCreate });
+        const entry = audit.entries.first();
+
+        const embed = {
+            color: 0x800080,
+            title: '🆕 Role Created',
+            description: `**Role Name:** ${role.name}`,
+            fields: [
+                { name: 'Role ID', value: role.id },
+                getExecutorInfo(entry, role.guild) || {
+                    name: 'Moderator',
+                    value: 'Could not retrieve.',
+                    inline: false
+                }
+            ],
+            timestamp: new Date()
+        };
+        sendLog(embed);
+    } catch (err) {
+        console.error("Error handling roleCreate:", err);
+    }
 });
 
 client.on('roleDelete', async role => {
     if (role.guild.id !== MONITOR_GUILD_ID) return;
-    const audit = await role.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.RoleDelete });
-    const entry = audit.entries.first();
-    const embed = {
-        color: 0xff6347,
-        title: '❌ Role Deleted',
-        description: `**Role Name:** ${role.name}`,
-        fields: [
-            { name: 'Role ID', value: role.id },
-            getExecutorInfo(entry, role.guild) || {
-                name: 'Moderator',
-                value: 'Could not retrieve.',
-                inline: false
-            }
-        ],
-        timestamp: new Date()
-    };
-    sendLog(embed);
+    try {
+        const audit = await role.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.RoleDelete });
+        const entry = audit.entries.first();
+
+        const embed = {
+            color: 0xff6347,
+            title: '❌ Role Deleted',
+            description: `**Role Name:** ${role.name}`,
+            fields: [
+                { name: 'Role ID', value: role.id },
+                getExecutorInfo(entry, role.guild) || {
+                    name: 'Moderator',
+                    value: 'Could not retrieve.',
+                    inline: false
+                }
+            ],
+            timestamp: new Date()
+        };
+        sendLog(embed);
+    } catch (err) {
+        console.error("Error handling roleDelete:", err);
+    }
 });
 
 client.on('roleUpdate', async (oldRole, newRole) => {
@@ -373,23 +437,29 @@ client.on('roleUpdate', async (oldRole, newRole) => {
         changes.push(`**Color:** \`${oldRole.color.toString(16)}\` → \`${newRole.color.toString(16)}\``);
     }
     if (changes.length === 0) return;
-    const audit = await newRole.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.RoleUpdate });
-    const entry = audit.entries.first();
-    const embed = {
-        color: 0xffff00,
-        title: `🎭 Role Updated: ${newRole.name}`,
-        description: changes.join('\n'),
-        fields: [
-            { name: 'Role ID', value: newRole.id },
-            getExecutorInfo(entry, newRole.guild) || {
-                name: 'Moderator',
-                value: 'Could not retrieve.',
-                inline: false
-            }
-        ],
-        timestamp: new Date()
-    };
-    sendLog(embed);
+
+    try {
+        const audit = await newRole.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.RoleUpdate });
+        const entry = audit.entries.first();
+
+        const embed = {
+            color: 0xffff00,
+            title: `🎭 Role Updated: ${newRole.name}`,
+            description: changes.join('\n'),
+            fields: [
+                { name: 'Role ID', value: newRole.id },
+                getExecutorInfo(entry, newRole.guild) || {
+                    name: 'Moderator',
+                    value: 'Could not retrieve.',
+                    inline: false
+                }
+            ],
+            timestamp: new Date()
+        };
+        sendLog(embed);
+    } catch (err) {
+        console.error("Error handling roleUpdate:", err);
+    }
 });
 
 // --- VOICE STATE ---
@@ -413,6 +483,7 @@ client.on('voiceStateUpdate', (oldState, newState) => {
     } else {
         return;
     }
+
     const embed = {
         color: 0x0099ff,
         title,
@@ -420,6 +491,7 @@ client.on('voiceStateUpdate', (oldState, newState) => {
         fields: [getUserInfo(newState.member?.user)],
         timestamp: new Date()
     };
+
     sendLog(embed);
 });
 
